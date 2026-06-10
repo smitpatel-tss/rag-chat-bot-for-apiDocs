@@ -14,7 +14,10 @@ class HierarchyEnricher:
     def __init__(self, llm_provider):
         
         self.method_rx = re.compile(r'\b(GET|POST|PUT|DELETE|PATCH)\b', re.IGNORECASE)
-        self.path_rx = re.compile(r'\/[a-zA-Z0-9_\-\{\}\/]+')
+        
+        self.path_rx = re.compile(
+            r'(?:https?://)?(?:[a-zA-Z0-9-]+\.)*trackwizz\.app/api(?:/[a-zA-Z0-9_{}.-]+)+'
+        )
         
         self.model = llm_provider.get_model()
         self.parser = PydanticOutputParser(pydantic_object=DocumentIdentitySchema)
@@ -39,17 +42,35 @@ class HierarchyEnricher:
                 
         raise ValueError("CRITICAL: LLM consistently failed to return valid Pydantic Identity Schema after 3 retries.")
 
-    def extract_global_metadata(self, raw_text: str) -> Dict[str, List[str]]:
 
+    def extract_global_metadata(self, raw_text: str) -> Dict[str, List[str]]:
         global_methods: Set[str] = set()
         global_paths: Set[str] = set()
+
         for m in self.method_rx.findall(raw_text):
             global_methods.add(m.upper())
+
         for p in self.path_rx.findall(raw_text):
+
             clean_path = p.rstrip('.,)]}"\'')
-            if len(clean_path.split('/')) >= 3 and not any(d in clean_path.lower() for d in ["dec", "mar", "jan", "1970", "1995", "---"]):
-                global_paths.add(clean_path)
-        return {"endpoint_paths": list(global_paths), "http_methods": list(global_methods)}
+
+            if "trackwizz.app" in clean_path:
+                clean_path = clean_path.split("trackwizz.app", 1)[-1]
+
+            segments = [s for s in clean_path.split('/') if s]
+
+            if not segments or segments[0] != "api":
+                continue
+
+            if len(segments) < 3:
+                continue
+
+            global_paths.add(clean_path)
+
+        return {
+            "endpoint_paths": sorted(global_paths),
+            "http_methods": sorted(global_methods),
+        }
 
     def enrich(self, nodes: List[BaseNode], global_metadata: Dict[str, List[str]], identity: DocumentIdentitySchema) -> List[BaseNode]:
         current_headers: Dict[int, str] = {}

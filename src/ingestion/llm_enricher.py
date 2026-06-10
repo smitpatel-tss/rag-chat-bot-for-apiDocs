@@ -26,7 +26,7 @@ class SemanticApiMetadata(BaseModel):
     def enforce_empty_lists_for_non_payloads(self) -> 'SemanticApiMetadata':
         """Forcefully clears field arrays ONLY if the chunk is explicitly a non-parameter table."""
         
-        if self.payload_purpose in ['GENERAL_INFO', 'ENUMERATIONS']:
+        if self.payload_purpose not in ["REQUEST_BODY", "SUCCESS_RESPONSE", "ERROR_RESPONSE"]:
             self.mandatory_fields_extracted = []
             self.optional_fields_extracted = []
         return self
@@ -39,18 +39,72 @@ class LLMMetadataEnricher:
     def enrich_nodes_with_llm(self, nodes: List[BaseNode], max_retries: int = 3) -> List[BaseNode]:
         
         prompt_template = PromptTemplate(
-            template="""
-            Analyze the following technical structure extracted from section context: '{section_context}'
-            Document Title: '{document_title}'
-            
+                template="""
+            You are an expert API documentation analyst.
+
             {format_instructions}
-            
-            Content Body:
+
+            DOCUMENT TITLE:
+            {document_title}
+
+            SECTION CONTEXT:
+            {section_context}
+
+            CONTENT BODY:
             {content_body}
+
+            TASK
+
+            1. Determine payload_purpose:
+            - REQUEST_BODY
+            - SUCCESS_RESPONSE
+            - ERROR_RESPONSE
+            - ENUMERATIONS
+            - CONFIG_TABLE
+            - GENERAL_INFO
+            - METADATA
+
+            Classification guidance:
+            - REQUEST_BODY → API request parameters
+            - SUCCESS_RESPONSE → API response parameters
+            - ERROR_RESPONSE → error payloads or error codes
+            - ENUMERATIONS → allowed values or status mappings
+            - CONFIG_TABLE → configuration settings or environment properties
+            - METADATA → version history, release notes, document control, ownership, approvals, revisions
+            - GENERAL_INFO → all other descriptive or reference content
+
+            When uncertain, choose GENERAL_INFO.
+
+            2. Extract mandatory_fields_extracted and optional_fields_extracted ONLY for:
+            - REQUEST_BODY
+            - SUCCESS_RESPONSE
+            - ERROR_RESPONSE
+
+            For all other categories, you MUST return completely empty lists: [].
+
+            CRITICAL ANTI-HALLUCINATION GUARDRAILS (STRICT COMPLIANCE REQUIRED):
+            - NEVER guess, assume, invent, derive, or infer API parameters.
+            - Extract only parameters that are explicitly present in the CONTENT BODY.
+            - If the content is a Version History, Revision, or Approval table, you MUST classify it as METADATA and leave both field extraction lists completely empty. Do not treat document version control attributes (like 'Date', 'Version', 'Author') as API request fields.
+            - Extract fields ONLY if they represent actual input/output data payloads for an API endpoint.
+
+            3. Extract only fields explicitly present in the content.
+
+            4. A field is mandatory only if explicitly marked required, mandatory, must be provided, or equivalent wording.
+
+            5. functional_description must be a concise factual summary of the content.
+
+            Return output strictly following the schema.
             """,
-            input_variables=["section_context", "document_title", "content_body"],
-            partial_variables={"format_instructions": self.parser.get_format_instructions()},
-        )
+                input_variables=[
+                    "section_context",
+                    "document_title",
+                    "content_body"
+                ],
+                partial_variables={
+                    "format_instructions": self.parser.get_format_instructions()
+                },
+)
         
         chain = prompt_template | self.model | self.parser
 

@@ -1,6 +1,6 @@
 from markdown_it import MarkdownIt
 from typing import List
-from .nodes import BaseNode, HeaderNode, ParagraphNode, CodeNode, TableNode
+from .nodes import BaseNode, HeaderNode, ParagraphNode, CodeNode, TableNode, ListNode
 
 class MarkdownASTParser:
     def __init__(self):
@@ -32,11 +32,13 @@ class MarkdownASTParser:
 
             if t.type == "heading_open":
                 level = int(t.tag[1:]) if t.tag.startswith("h") else 1
-                content = ""
+                parts=[]
                 while i < total_tokens and tokens[i].type != "heading_close":
                     if tokens[i].type == "inline":
-                        content = self._extract_inline(tokens[i])
+                        parts.append(self._extract_inline(tokens[i]))
                     i += 1
+                
+                content = "".join(parts)
                 nodes.append(HeaderNode(type="header", content=content.strip(), level=level))
                 i += 1
 
@@ -59,19 +61,85 @@ class MarkdownASTParser:
 
             elif t.type == "table_open":
                 table_slice = []
+                table_lines = []
+                current_row_cells = []
+
                 while i < total_tokens:
-                    table_slice.append(tokens[i])
-                    if tokens[i].type == "table_close":
+                    current_token = tokens[i]
+                    table_slice.append(current_token)
+
+                    if current_token.type == "table_close":
                         break
+
+                    if current_token.type == "tr_open":
+                        current_row_cells = []
+
+                    elif current_token.type == "tr_close":
+                        if current_row_cells:
+                            table_lines.append(" | ".join(current_row_cells))
+
+                    elif current_token.type in ["th_open", "td_open"]:
+                        cell_content = ""
+                        i += 1
+                        while i < total_tokens and tokens[i].type not in ["th_close", "td_close"]:
+                            table_slice.append(tokens[i])
+                            if tokens[i].type == "inline":
+                                cell_content += self._extract_inline(tokens[i])
+                            i += 1
+
+                        current_row_cells.append(cell_content.strip())
+                        table_slice.append(tokens[i])
+
+
                     i += 1
-                
-                fallback_text = " ".join([self._extract_inline(tk) for tk in table_slice if tk.type == "inline"])
                 nodes.append(TableNode(
                     type="table",
-                    content=fallback_text.strip(),
-                    raw_tokens=[tk.as_dict() for tk in table_slice]
+                    content="\n".join(table_lines),
+                    raw_tokens=[tk.as_dict() for tk in table_slice],
+                    metadata={
+                        "row_count": len(table_lines),
+                        "column_count": max(
+                            (len(r.split(" | ")) for r in table_lines),
+                            default=0
+                        )
+                    }
                 ))
-                i += 1
+            
+            elif t.type in ["bullet_list_open", "ordered_list_open"]:
+                list_slice = []
+                items = []
+                current_item = []
+                capture_item = False
+
+                while i < total_tokens:
+                    token = tokens[i]
+                    list_slice.append(token)
+
+                    if token.type == "list_item_open":
+                        current_item = []
+                        capture_item = True
+
+                    elif token.type == "list_item_close":
+                        if current_item:
+                            items.append("".join(current_item).strip())
+                        capture_item = False
+
+                    elif token.type in ["paragraph_open", "paragraph_close"]:
+                        pass
+
+                    elif token.type == "inline" and capture_item:
+                        current_item.append(self._extract_inline(token))
+
+                    elif token.type in ["bullet_list_close", "ordered_list_close"]:
+                        break
+
+                    i += 1
+
+                nodes.append(ListNode(
+                    type="list",
+                    content="\n".join(f"- {item}" for item in items if item),
+                    raw_tokens=[t.as_dict() for t in list_slice]
+                ))
             
             else:
                 i += 1

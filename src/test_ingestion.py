@@ -30,6 +30,7 @@ def test_pipeline():
         print(f"Title       : {c.title}")
         print(f"Parent Hdr  : {c.parent_header}")
         print(f"Attributes  : {c.attributes}\n")
+        print(f"---------> Content:\n{c.content}")
 
         c = chunks[1]
         print("============= CHUNK 2 GENERATED PAYLOAD SCHEMA =============")
@@ -43,6 +44,7 @@ def test_pipeline():
         print(f"Title       : {c.title}")
         print(f"Parent Hdr  : {c.parent_header}")
         print(f"Attributes  : {c.attributes}\n")
+        print(f"---------> Content:\n{c.content}")
 
 if __name__ == "__main__":
     test_pipeline()
