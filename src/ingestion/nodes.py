@@ -45,3 +45,7 @@ class SmartChunk(BaseModel):
     content: str
     
     attributes: Dict[str, Any] = Field(default_factory=dict)
+
+class EmbeddedChunk(SmartChunk):
+    
+    embedding: List[float] = Field(default_factory=list)

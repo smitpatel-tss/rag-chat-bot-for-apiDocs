@@ -18,12 +18,13 @@ class Settings(BaseSettings):
     )
     LLM_MODEL: str = "gpt-4o-mini"
     LLM_TEMPERATURE: float = Field(default=0.0, ge=0.0, le=2.0)
-    LLM_BASE_URL: str = "random"
+    LLM_BASE_URL: str = ""
     
     EMBEDDING_PROVIDER: Literal["openai", "local", "mock"] = "openai"
     EMBEDDING_API_KEY: SecretStr = Field(default=SecretStr(""))
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSION: int = 1536
+    EMBEDDING_BASE_URL: str = ""
 
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     
