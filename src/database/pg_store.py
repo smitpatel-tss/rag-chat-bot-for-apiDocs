@@ -190,7 +190,7 @@ class PGVectorStore(BaseVectorStore):
         filter_clause = self._build_filter_clause(filters)
         
         query = sql.SQL("""
-            SELECT chunk_id, doc_id, title, content, attributes, 
+            SELECT chunk_id, doc_id, title, content, attributes, source_url, anchor,
                    1 - (embedding <=> {embedding}::vector) AS score
             FROM {table}
             {filters}
@@ -215,7 +215,7 @@ class PGVectorStore(BaseVectorStore):
             raise
             
         return [
-            {"chunk_id": r[0], "doc_id": r[1], "title": r[2], "content": r[3], "attributes": r[4], "score": r[5]} 
+            {"chunk_id": r[0], "doc_id": r[1], "title": r[2], "content": r[3], "attributes": r[4], "source_url": r[5], "anchor": r[6], "score": r[7]} 
             for r in rows
         ]
 
@@ -231,12 +231,14 @@ class PGVectorStore(BaseVectorStore):
         filters = filters or {}
         filter_clause = self._build_filter_clause(filters)
         
-        fts_condition = sql.SQL(" AND " if filters else " WHERE ") + sql.SQL("""
-            to_tsvector('english', title || ' ' || content) @@ websearch_to_tsquery('english', {query_text})
-        """)
+        fts_placeholder = sql.Placeholder("query_text")
+        fts_body = sql.SQL("to_tsvector('english', title || ' ' || content) @@ websearch_to_tsquery('english', {})").format(
+            fts_placeholder
+        )
+        fts_condition = (sql.SQL(" AND ") if filters else sql.SQL(" WHERE ")) + fts_body
 
         query = sql.SQL("""
-            SELECT chunk_id, doc_id, title, content, attributes,
+            SELECT chunk_id, doc_id, title, content, attributes, source_url, anchor,
                    ts_rank(to_tsvector('english', title || ' ' || content), websearch_to_tsquery('english', {query_text})) AS score
             FROM {table}
             {filters}
@@ -247,7 +249,7 @@ class PGVectorStore(BaseVectorStore):
             table=sql.Identifier(table_name),
             filters=filter_clause,
             fts_condition=fts_condition,
-            query_text=sql.Placeholder("query_text"),
+            query_text=fts_placeholder,
             limit=sql.Placeholder("limit")
         )
 
@@ -263,7 +265,7 @@ class PGVectorStore(BaseVectorStore):
             raise
 
         return [
-            {"chunk_id": r[0], "doc_id": r[1], "title": r[2], "content": r[3], "attributes": r[4], "score": r[5]} 
+            {"chunk_id": r[0], "doc_id": r[1], "title": r[2], "content": r[3], "attributes": r[4], "source_url": r[5], "anchor": r[6], "score": r[7]} 
             for r in rows
         ]
     
@@ -297,4 +299,4 @@ class PGVectorStore(BaseVectorStore):
             result["hybrid_score"] = score
             final_results.append(result)
             
-        return final_results[:6]
+        return final_results[:5]

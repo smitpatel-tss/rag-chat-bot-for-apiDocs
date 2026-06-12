@@ -4,12 +4,33 @@ import logging
 import re
 from typing import List, Dict, Any
 from src.ingestion.nodes import BaseNode, SmartChunk
+from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
 class ChunkBuilder:
-    def __init__(self, model_name: str = "gpt-4o"):
-        self.encoder = tiktoken.encoding_for_model(model_name)
+    def __init__(self):
+        
+        try:
+            self.encoder = tiktoken.encoding_for_model(settings.EMBEDDING_MODEL)
+
+        except KeyError as exc:
+            raise ValueError(
+                f"Unsupported embedding model '{settings.EMBEDDING_MODEL}'. "
+                "Please verify EMBEDDING_MODEL in your environment configuration."
+            ) from exc
+
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to initialize tokenizer for model "
+                f"'{settings.EMBEDDING_MODEL}'."
+            ) from exc
+
+        if self.encoder is None:
+            raise ValueError(
+                "Tokenizer initialization failed: EMBEDDING_MODEL is missing or invalid."
+            )
+        
         self.text_target_limit = 900
         self.hard_embedding_ceiling = 4000
 
@@ -17,10 +38,13 @@ class ChunkBuilder:
         return len(self.encoder.encode(text))
 
     def _generate_slug(self, text: str) -> str:
-        slug = text.lower().strip()
-        slug = re.sub(r'[^a-z0-9\s\-]', '', slug)
-        slug = re.sub(r'[\s\_]+', '-', slug)
-        return re.sub(r'\-+', '-', slug)
+        text = text.strip()
+        text = re.sub(r'^\d+(?:\.\d+)*\.?\s*', '', text)
+        text = text.lower()
+        text = re.sub(r'[^a-z0-9\s\-]', '', text)
+        text = re.sub(r'[\s_]+', '-', text)
+        text = re.sub(r'-+', '-', text)
+        return text.strip('-')
 
     def _build_metadata_attributes(self, node_metadata: Dict[str, Any], api_version: str | None = None) -> Dict[str, Any]:
         base_attrs = {}
