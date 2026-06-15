@@ -38,9 +38,9 @@ class ChunkBuilder:
         return len(self.encoder.encode(text))
 
     def _generate_slug(self, text: str) -> str:
-        text = text.strip()
-        text = re.sub(r'^\d+(?:\.\d+)*\.?\s*', '', text)
-        text = text.lower()
+
+        text = text.strip().lower()
+        text = text.replace('.', '-')
         text = re.sub(r'[^a-z0-9\s\-]', '', text)
         text = re.sub(r'[\s_]+', '-', text)
         text = re.sub(r'-+', '-', text)
@@ -108,34 +108,48 @@ class ChunkBuilder:
             anchor_slug = self._generate_slug(parent_hdr)
 
             if node.type in ["code", "table"]:
+                headers=""
                 if current_text_buffer:
-                    buffer_content = "\n\n".join([n.content for n in current_text_buffer])
 
-                    raw_chunks.append(
-                        SmartChunk(
-                            doc_id=doc_id,
-                            chunk_id=str(uuid.uuid4()),
-                            token_count=self._count_tokens(buffer_content),
-                            source_url=source_url,
-                            anchor=self._generate_slug(current_section_path[-1]),
-                            title=current_text_buffer[0].title,
-                            document_version=current_text_buffer[0].metadata.get("document_version", "v1.0"),
-                            parent_header=current_section_path[-1],
-                            section_path=current_section_path,
-                            chunk_type="TEXT",
-                            content=buffer_content,
-                            attributes=self._build_metadata_attributes_from_list(current_text_buffer)
+                    for i in range(len(current_text_buffer)-1, -1 , -1):
+                        if current_text_buffer[i].type == "header":
+                            chunk = current_text_buffer.pop(i)
+                            headers = chunk.content + ("\n" + headers if headers else "")
+                        else:
+                            break
+
+
+                    if current_text_buffer:
+                        buffer_content = "\n\n".join([n.content for n in current_text_buffer])
+
+                        raw_chunks.append(
+                            SmartChunk(
+                                doc_id=doc_id,
+                                chunk_id=str(uuid.uuid4()),
+                                token_count=self._count_tokens(buffer_content),
+                                source_url=source_url,
+                                anchor=self._generate_slug(current_section_path[-1]),
+                                title=current_text_buffer[0].title,
+                                document_version=current_text_buffer[0].metadata.get("document_version", "v1.0"),
+                                parent_header=current_section_path[-1],
+                                section_path=current_section_path,
+                                chunk_type="TEXT",
+                                content=buffer_content,
+                                attributes=self._build_metadata_attributes_from_list(current_text_buffer)
+                            )
                         )
-                    )
 
                     current_text_buffer = []
                     current_buffer_tokens = 0
+
+                final_content = f"{headers}\n{node.content}" if headers else node.content
+                actual_node_tokens = self._count_tokens(final_content)
 
                 raw_chunks.append(
                     SmartChunk(
                         doc_id=doc_id,
                         chunk_id=str(uuid.uuid4()),
-                        token_count=node_tokens,
+                        token_count=actual_node_tokens,
                         source_url=source_url,
                         anchor=anchor_slug,
                         title=node.title,
@@ -143,12 +157,12 @@ class ChunkBuilder:
                         parent_header=parent_hdr,
                         section_path=node_section_path,
                         chunk_type=node.type.upper(),
-                        content=node.content,
+                        content= final_content,
                         attributes=self._build_metadata_attributes(node.metadata)
                     )
                 )
 
-                if node_tokens > self.hard_embedding_ceiling:
+                if actual_node_tokens > self.hard_embedding_ceiling:
                     logger.warning(f"CRITICAL: Element exceeds embedding ceiling ({node_tokens} tokens).")
                     print(f"This node is bigger than the limit. Node Type: {node.type} | Token Count: {node_tokens} | Node Id: {raw_chunks[-1].chunk_id}")
 
@@ -157,7 +171,10 @@ class ChunkBuilder:
             section_changed = node_section_path != current_section_path
             buffer_overflow = (current_buffer_tokens + node_tokens) > self.text_target_limit
 
-            if (section_changed or buffer_overflow) and current_text_buffer:
+            is_only_headers = all(n.type == "header" for n in current_text_buffer)
+
+            if (section_changed or buffer_overflow) and current_text_buffer and not is_only_headers:
+
                 buffer_content = "\n\n".join([n.content for n in current_text_buffer])
 
                 raw_chunks.append(

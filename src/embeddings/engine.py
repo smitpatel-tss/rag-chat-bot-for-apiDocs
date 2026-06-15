@@ -12,6 +12,38 @@ class EmbeddingEngine:
         self.batch_size = batch_size
         self.max_retries = max_retries
 
+    def _format_for_embedding(self, chunk: SmartChunk) -> str:
+        parts = []
+        
+        if chunk.title:
+            parts.append(f"Document: {chunk.title}")
+            
+        if chunk.parent_header:
+            parts.append(f"Section: {chunk.parent_header}")
+            
+        if chunk.attributes:
+            endpoints = chunk.attributes.get("endpoint_paths", [])
+            if endpoints:
+                parts.append(f"Endpoints: {', '.join(endpoints)}")
+            
+            semantic_info = chunk.attributes.get("semantic_analysis", {})
+            if semantic_info:
+                description = semantic_info.get("functional_description", "")
+                if description:
+                    parts.append(f"Summary: {description}")
+                
+                mandatory_fields = semantic_info.get("mandatory_fields_extracted", [])
+                if mandatory_fields:
+                    parts.append(f"Mandatory fields: {', '.join(mandatory_fields)}")
+                
+                optional_fields = semantic_info.get("optional_fields_extracted", [])
+                if optional_fields:
+                    parts.append(f"Optional fields: {', '.join(optional_fields)}")
+                
+        parts.append(f"\nContent:\n{chunk.content}")
+        
+        return "\n".join(parts)
+
     def generate_embeddings(self, chunks: List[SmartChunk]) -> List[EmbeddedChunk]:
 
         if not chunks:
@@ -28,7 +60,9 @@ class EmbeddingEngine:
 
         for i in range(0, total_chunks, self.batch_size):
             batch = chunks[i: i + self.batch_size]
-            texts_to_embed = [chunk.content for chunk in batch]
+            
+            texts_to_embed = [self._format_for_embedding(chunk) for chunk in batch]
+            
             vectors = None
 
             for attempt in range(self.max_retries):

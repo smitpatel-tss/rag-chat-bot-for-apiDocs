@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from src.database.base import BaseVectorStore
 from src.ingestion.nodes import EmbeddedChunk
+from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -271,32 +272,42 @@ class PGVectorStore(BaseVectorStore):
     
     def hybrid_search(self, table_name: str, query_text: str, query_embedding: List[float], limit: int = 10, filters: dict = None) -> List[dict]:
 
-        fetch_limit = limit * 2
+        vector_top_k = settings.VECTOR_SEARCH_TOP_K
+        keyword_top_k = settings.KEYWORD_SEARCH_TOP_K
         
-        vector_results = self.vector_search(table_name, query_embedding, limit=fetch_limit, filters=filters)
-        keyword_results = self.keyword_search(table_name, query_text, limit=fetch_limit, filters=filters)
+        vector_results = self.vector_search(table_name, query_embedding, limit=vector_top_k, filters=filters)
+        keyword_results = self.keyword_search(table_name, query_text, limit=keyword_top_k, filters=filters)
 
         # RRF_Score = 1 / (k + rank)
         k = 60
         rrf_scores = {}
         chunk_data = {}
 
+        VECTOR_WEIGHT = settings.VECTOR_WEIGHT
+        KEYWORD_WEIGHT = settings.KEYWORD_WEIGHT
+
         for rank, item in enumerate(vector_results):
             cid = item["chunk_id"]
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (1.0 / (k + rank + 1))
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (VECTOR_WEIGHT * (1.0 / (k + rank + 1)))
             chunk_data[cid] = item
 
         for rank, item in enumerate(keyword_results):
             cid = item["chunk_id"]
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (1.0 / (k + rank + 1))
+            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (KEYWORD_WEIGHT * (1.0 / (k + rank + 1)))
             chunk_data[cid] = item
 
         sorted_chunks = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
 
+        max_context_chunks = settings.MAX_CONTEXT_CHUNKS
+        if max_context_chunks <= 0:
+            raise ValueError("Invalid Max context chunk value")
+
         final_results = []
-        for cid, score in sorted_chunks[:limit]:
-            result = chunk_data[cid]
+        for cid, score in sorted_chunks[:max_context_chunks]:
+            result = chunk_data[cid].copy()
             result["hybrid_score"] = score
             final_results.append(result)
+        
+
             
-        return final_results[:5]
+        return final_results

@@ -50,4 +50,13 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
+    PAGE_BOOST_WEIGHT: float = Field(default= 0.15, description="parameter to boost the same path weights")
+    MAX_CONTEXT_CHUNKS: int = Field(default = 5, description="Max context chunk to give to llm for answering")
+
+    VECTOR_SEARCH_TOP_K: int = Field(default=20, description="top k vector search results to take for scoring")
+    KEYWORD_SEARCH_TOP_K: int = Field(default=20, description="top k keyword search results to take for scoring")
+
+    VECTOR_WEIGHT: float = Field(default=1.0, description="Weight for score from vector results")
+    KEYWORD_WEIGHT: float = Field(default=1.0, description="Weight for score from keyword results")
+
 settings = Settings()
