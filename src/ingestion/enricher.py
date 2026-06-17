@@ -1,10 +1,11 @@
 import re
 import time
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Set
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain_core.prompts import PromptTemplate
+from typing import List, Dict, Set
+
 from src.ingestion.nodes import BaseNode, HeaderNode
+from src.prompts.factory import PromptFactory
 
 class DocumentIdentitySchema(BaseModel):
     extracted_title: str = Field(description="The primary name or title of the API document.")
@@ -20,22 +21,18 @@ class HierarchyEnricher:
         )
         
         self.model = llm_provider.get_model()
-        self.parser = PydanticOutputParser(pydantic_object=DocumentIdentitySchema)
+        self.parser= PydanticOutputParser(pydantic_object=DocumentIdentitySchema)
+        self.prompt_template = PromptFactory.get("llm_comman_metadata_prompt", "v1")
 
     def bootstrap_document_identity(self, raw_text: str, max_retries: int = 3) -> DocumentIdentitySchema:
         front_page_sample = raw_text[:1200]
         
-        prompt_template = PromptTemplate(
-            template="Extract the core document title and the exact document version from this API document front page cover content.\n{format_instructions}\n\nFront Page Text:\n{text}",
-            input_variables=["text"],
-            partial_variables={"format_instructions": self.parser.get_format_instructions()},
-        )
         
-        chain = prompt_template | self.model | self.parser
+        chain = self.prompt_template | self.model | self.parser
         
         for attempt in range(max_retries):
             try:
-                return chain.invoke({"text": front_page_sample})
+                return chain.invoke({"text": front_page_sample, "format_instructions": self.parser.get_format_instructions()})
             except Exception as e:
                 print(f"[Attempt {attempt + 1}/{max_retries}] Identity Extraction failed parsing. Retrying... Error: {str(e)}")
                 time.sleep(1)

@@ -6,6 +6,7 @@ from psycopg2.extensions import connection
 from pgvector.psycopg2 import register_vector
 from typing import List, Optional
 import cohere
+from sentence_transformers import CrossEncoder
 
 from src.database.base import BaseVectorStore
 from src.ingestion.nodes import EmbeddedChunk
@@ -17,7 +18,10 @@ class PGVectorStore(BaseVectorStore):
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
         self.conn: Optional[connection] = None
-        self.co_client = cohere.Client(settings.COHERE_API_KEY)
+
+        cohere_key = settings.COHERE_API_KEY.get_secret_value() if hasattr(settings.COHERE_API_KEY, "get_secret_value") else settings.COHERE_API_KEY
+        self.co_client = cohere.Client(cohere_key)
+        self.cross_encoder_model = CrossEncoder(settings.RERANKING_MODEL_BAAI)
 
     def connect(self) -> None:
         try:
@@ -326,35 +330,41 @@ class PGVectorStore(BaseVectorStore):
 
         for item in vector_results + keyword_results:
             cid = item.get("chunk_id")
-            if cid and cid not in unique_candidates:
-                unique_candidates[cid] = item
+            if cid:
+                if cid not in unique_candidates or item.get("score", 0) > unique_candidates[cid].get("score", 0):
+                    unique_candidates[cid] = item
 
         candidate_list = list(unique_candidates.values())
-        candidate_list = sorted(candidate_list, key=lambda x: x.get("score", 0), reverse = True)
-        rerank_limit = settings.RERANK_CANDIDATE_LIMIT
+        # candidate_list = sorted(candidate_list, key=lambda x: x.get("score", 0), reverse = True)
+        # rerank_limit = settings.RERANK_CANDIDATE_LIMIT
 
-        candidate_list = candidate_list[:rerank_limit]
+        # candidate_list = candidate_list[:rerank_limit]
 
         if not candidate_list:
             return []
-        
-        documents_to_rerank = [c.get("content") or "" for c in candidate_list]
 
         actual_limit = settings.MAX_CONTEXT_CHUNKS
+
+        # return self._reranker_cohere(candidate_list, query_text, actual_limit)
+        return self._reranker_baai(candidate_list, query_text, actual_limit)
+
+             
+    def _reranker_cohere(self, doc_list, query, limit):
+        documents_to_rerank = [c.get("content") or "" for c in doc_list]
 
         try:
             rerank_response = self.co_client.rerank(
                 model = settings.RERANKING_MODEL,
-                query=query_text,
+                query=query,
                 documents=documents_to_rerank,
-                top_n=actual_limit
+                top_n=limit
             )
 
             final_result = []
 
             for result in rerank_response.results:
 
-                matched_candidate = candidate_list[result.index].copy()
+                matched_candidate = doc_list[result.index].copy()
                 matched_candidate["final_score"] = result.relevance_score
                 final_result.append(matched_candidate)
 
@@ -362,6 +372,24 @@ class PGVectorStore(BaseVectorStore):
         
         except Exception as e:
             print(f"Reranker API failed: {e}. Falling back to Vector Search.")
-            return candidate_list[:actual_limit]
+            return doc_list[:limit]
+        
+    def _reranker_baai(self, doc_list, query, limit):
+        documents_to_rerank = [(query, c.get("content") or "") for c in doc_list]
 
+        try:
+            scores = self.cross_encoder_model.predict(documents_to_rerank)
+            ranked = sorted(zip(doc_list, scores), key = lambda x: x[1], reverse = True)[:limit]
+            
+            final_results = []
 
+            for doc, score in ranked:
+                doc_copy = doc.copy()
+                doc_copy["final_score"] = float(score)
+                final_results.append(doc_copy)
+
+            return final_results
+        
+        except Exception as e:
+            print(f"Reranker failed: {e}. Falling back.")
+            return doc_list[:limit]

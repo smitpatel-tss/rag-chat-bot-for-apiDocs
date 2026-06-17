@@ -1,10 +1,10 @@
 import json
 import logging
 from typing import List, Dict, Any
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.embeddings import Embeddings
 
+from src.prompts.factory import PromptFactory
 from src.database.pg_store import PGVectorStore
 
 logger = logging.getLogger(__name__)
@@ -22,21 +22,7 @@ class RAGChatEngine:
         self.embedder = embedder
         self.table_name = table_name
 
-        self.prompt_template = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert Developer Assistant for API integration.
-Your goal is to help developers integrate APIs by providing accurate, code-ready answers based SOLELY on the provided documentation context.
-
-CRITICAL RULES:
-1. ONLY use the information provided in the Context sections below. Do not hallucinate or guess API parameters, endpoints, or rules.
-2. If the context does not contain the answer, explicitly state: "I don't have enough information in the provided documentation to answer that."
-3. When providing JSON payloads or code examples, ensure they perfectly match the mandatory fields and data types specified in the context.
-4. If multiple API versions are present in the context, clarify which version your answer applies to.
-
-CONTEXT:
-{formatted_context}
-"""),
-            ("user", "{user_query}")
-        ])
+        self.prompt_template = PromptFactory.get("api_assistant", "v1")
 
     def _format_context(self, chunks: List[dict]) -> str:
 
