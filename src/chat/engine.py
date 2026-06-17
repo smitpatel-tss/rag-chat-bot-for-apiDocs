@@ -71,7 +71,7 @@ CONTEXT:
 
         return "\n\n".join(formatted_sections)
     
-    def generate_answer(self, user_query: str, limit: int = 10, filters: Dict[str, Any] = None) -> Dict[str, Any]:
+    def generate_answer(self, user_query: str, filters: Dict[str, Any] = None) -> Dict[str, Any]:
         
         logger.info(f"Processing query: '{user_query}'")
 
@@ -84,11 +84,17 @@ CONTEXT:
             raise ValueError("Embedding generation returned an empty vector.")
 
         logger.info("Executing Hybrid Search...")
-        retrieved_chunks = self.vector_store.hybrid_search(
+        retrieved_chunks = self.vector_store.hybrid_search_RRF(
             table_name=self.table_name,
             query_text=user_query,
             query_embedding=query_embedding,
-            limit=limit,
+            filters=filters
+        )
+
+        retrieved_chunks = self.vector_store.hybrid_search_Reranker(
+            table_name=self.table_name,
+            query_text=user_query,
+            query_embedding=query_embedding,
             filters=filters
         )
 
@@ -117,7 +123,7 @@ CONTEXT:
                 "chunk_id": chunk["chunk_id"],
                 "doc_id": chunk["doc_id"],
                 "title": chunk["title"],
-                "hybrid_score": chunk.get("hybrid_score", 0.0),
+                "hybrid_score": chunk.get("final_score", 0.0),
                 "source_url": chunk.get("source_url", ""),
                 "anchor": chunk.get("anchor", "")
             }

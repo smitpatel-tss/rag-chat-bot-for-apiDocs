@@ -59,4 +59,12 @@ class Settings(BaseSettings):
     VECTOR_WEIGHT: float = Field(default=1.0, description="Weight for score from vector results")
     KEYWORD_WEIGHT: float = Field(default=1.0, description="Weight for score from keyword results")
 
+    COHERE_API_KEY: SecretStr = Field(
+        default=SecretStr(""), 
+        description="Wrapped in SecretStr to prevent accidental logging leaks."
+    )
+    RERANKER_PROVIDER: Literal["cohere", "mock"] = "cohere"
+    RERANKING_MODEL: str = "rerank-english-v3.0"
+    RERANK_CANDIDATE_LIMIT: int = 30
+
 settings = Settings()

@@ -5,6 +5,7 @@ from psycopg2.extras import execute_values, Json
 from psycopg2.extensions import connection
 from pgvector.psycopg2 import register_vector
 from typing import List, Optional
+import cohere
 
 from src.database.base import BaseVectorStore
 from src.ingestion.nodes import EmbeddedChunk
@@ -16,6 +17,7 @@ class PGVectorStore(BaseVectorStore):
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
         self.conn: Optional[connection] = None
+        self.co_client = cohere.Client(settings.COHERE_API_KEY)
 
     def connect(self) -> None:
         try:
@@ -270,7 +272,7 @@ class PGVectorStore(BaseVectorStore):
             for r in rows
         ]
     
-    def hybrid_search(self, table_name: str, query_text: str, query_embedding: List[float], limit: int = 10, filters: dict = None) -> List[dict]:
+    def hybrid_search_RRF(self, table_name: str, query_text: str, query_embedding: List[float], filters: dict = None) -> List[dict]:
 
         vector_top_k = settings.VECTOR_SEARCH_TOP_K
         keyword_top_k = settings.KEYWORD_SEARCH_TOP_K
@@ -305,9 +307,61 @@ class PGVectorStore(BaseVectorStore):
         final_results = []
         for cid, score in sorted_chunks[:max_context_chunks]:
             result = chunk_data[cid].copy()
-            result["hybrid_score"] = score
+            result["final_score"] = score
             final_results.append(result)
         
 
             
         return final_results
+    
+    def hybrid_search_Reranker(self, table_name: str, query_text: str, query_embedding: List[float], filters: dict = None) -> List[dict]:
+
+        vector_top_k = settings.VECTOR_SEARCH_TOP_K
+        keyword_top_k = settings.KEYWORD_SEARCH_TOP_K
+        
+        vector_results = self.vector_search(table_name, query_embedding, limit=vector_top_k, filters=filters)
+        keyword_results = self.keyword_search(table_name, query_text, limit=keyword_top_k, filters=filters)
+
+        unique_candidates = {}
+
+        for item in vector_results + keyword_results:
+            cid = item.get("chunk_id")
+            if cid and cid not in unique_candidates:
+                unique_candidates[cid] = item
+
+        candidate_list = list(unique_candidates.values())
+        candidate_list = sorted(candidate_list, key=lambda x: x.get("score", 0), reverse = True)
+        rerank_limit = settings.RERANK_CANDIDATE_LIMIT
+
+        candidate_list = candidate_list[:rerank_limit]
+
+        if not candidate_list:
+            return []
+        
+        documents_to_rerank = [c.get("content") or "" for c in candidate_list]
+
+        actual_limit = settings.MAX_CONTEXT_CHUNKS
+
+        try:
+            rerank_response = self.co_client.rerank(
+                model = settings.RERANKING_MODEL,
+                query=query_text,
+                documents=documents_to_rerank,
+                top_n=actual_limit
+            )
+
+            final_result = []
+
+            for result in rerank_response.results:
+
+                matched_candidate = candidate_list[result.index].copy()
+                matched_candidate["final_score"] = result.relevance_score
+                final_result.append(matched_candidate)
+
+            return final_result
+        
+        except Exception as e:
+            print(f"Reranker API failed: {e}. Falling back to Vector Search.")
+            return candidate_list[:actual_limit]
+
+

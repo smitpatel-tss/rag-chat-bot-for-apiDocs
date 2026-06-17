@@ -13,7 +13,7 @@ def test_pipeline(user_query: str):
     if not query_embedding:
         raise ValueError("Embedding generation returned an empty vector.")
 
-    retrieved_chunks = vector_store.hybrid_search(
+    retrieved_chunks = vector_store.hybrid_search_RRF(
         table_name=settings.VECTOR_DB_COLLECTION,
         query_text=user_query,
         query_embedding=query_embedding
