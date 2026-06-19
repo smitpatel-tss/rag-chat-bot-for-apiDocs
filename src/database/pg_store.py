@@ -19,9 +19,9 @@ class PGVectorStore(BaseVectorStore):
         self.connection_string = connection_string
         self.conn: Optional[connection] = None
 
-        cohere_key = settings.COHERE_API_KEY.get_secret_value() if hasattr(settings.COHERE_API_KEY, "get_secret_value") else settings.COHERE_API_KEY
-        self.co_client = cohere.Client(cohere_key)
-        self.cross_encoder_model = CrossEncoder(settings.RERANKING_MODEL_BAAI)
+        # cohere_key = settings.COHERE_API_KEY.get_secret_value() if hasattr(settings.COHERE_API_KEY, "get_secret_value") else settings.COHERE_API_KEY
+        # self.co_client = cohere.Client(cohere_key)
+        # self.cross_encoder_model = CrossEncoder(settings.RERANKING_MODEL_BAAI)
 
     def connect(self) -> None:
         try:
@@ -387,6 +387,10 @@ class PGVectorStore(BaseVectorStore):
                 doc_copy = doc.copy()
                 doc_copy["final_score"] = float(score)
                 final_results.append(doc_copy)
+            
+            if not final_results:
+                print("Empty Response from Reranker")
+                return doc_list[:limit]
 
             return final_results
         

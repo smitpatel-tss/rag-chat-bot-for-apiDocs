@@ -77,12 +77,12 @@ class RAGChatEngine:
             filters=filters
         )
 
-        retrieved_chunks = self.vector_store.hybrid_search_Reranker(
-            table_name=self.table_name,
-            query_text=user_query,
-            query_embedding=query_embedding,
-            filters=filters
-        )
+        # retrieved_chunks = self.vector_store.hybrid_search_Reranker(
+        #     table_name=self.table_name,
+        #     query_text=user_query,
+        #     query_embedding=query_embedding,
+        #     filters=filters
+        # )
 
         if not retrieved_chunks:
             return {
@@ -97,8 +97,8 @@ class RAGChatEngine:
 
         try:
             response = chain.invoke({
-                "formatted_context": formatted_context,
-                "user_query": user_query
+            "context": formatted_context,
+            "user_query": user_query
             })
         except Exception as e:
             logger.exception(f"Failed to generate LLM response for query: '{user_query}'")
