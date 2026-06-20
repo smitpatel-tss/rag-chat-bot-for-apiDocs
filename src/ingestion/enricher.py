@@ -14,7 +14,7 @@ class DocumentIdentitySchema(BaseModel):
 class HierarchyEnricher:
     def __init__(self, llm_provider):
         
-        self.method_rx = re.compile(r'\b(GET|POST|PUT|DELETE|PATCH)\b', re.IGNORECASE)
+        self.method_rx = re.compile(r'\b(GET|POST|PUT|DELETE|PATCH)\b')
         
         self.path_rx = re.compile(
             r'(?:https?://)?(?:[a-zA-Z0-9-]+\.)*trackwizz\.app/api(?:/[a-zA-Z0-9_{}.-]+)+'

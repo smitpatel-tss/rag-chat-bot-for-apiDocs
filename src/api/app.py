@@ -1,5 +1,7 @@
 import atexit
 import logging
+import time
+from functools import wraps
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -36,7 +38,22 @@ chat_engine = RAGChatEngine(
     table_name=settings.VECTOR_DB_COLLECTION
 )
 
+def log_execution_time(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.perf_counter()
+        result = func(*args, **kwargs)
+        end_time = time.perf_counter()
+        
+        elapsed_time = end_time - start_time
+        logger.info(f"-- [{elapsed_time:.4f} s] for endpoint '{func.__name__}'")
+        
+        return result
+    return wrapper
+
+
 @app.route("/api/chat", methods=["POST"])
+@log_execution_time
 def chat():
     try:
         data = request.get_json(silent=True)
@@ -72,6 +89,7 @@ def chat():
 
 
 @app.route("/health", methods=["GET"])
+@log_execution_time
 def health():
     return jsonify({
         "status": "healthy"

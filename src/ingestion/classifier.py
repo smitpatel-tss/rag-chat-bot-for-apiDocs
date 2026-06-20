@@ -50,14 +50,13 @@ class DeterministicClassifier:
         original_nodes_buffer = []
         json_headers = {}
         json_metadata = {}
+        json_title = "Untitled Document"
 
         depth = 0
 
         for node in nodes:
 
-            is_evaluable = isinstance(node, ParagraphNode) or (
-                isinstance(node, CodeNode) and not node.language
-            )
+            is_evaluable = isinstance(node, ParagraphNode) or (isinstance(node, CodeNode) and not node.language)
 
             if not in_json_block:
 
@@ -72,6 +71,7 @@ class DeterministicClassifier:
                     in_json_block = True
                     json_headers = node.headers.copy()
                     json_metadata = node.metadata.copy()
+                    json_title = node.title
 
                     depth += self._get_depth_delta_for_line(node.content)
 
@@ -84,6 +84,7 @@ class DeterministicClassifier:
                             content="\n".join(json_buffer),
                             language="json",
                             headers=json_headers,
+                            title=json_title,
                             metadata={
                                 **json_metadata,
                                 "valid_json": False,
@@ -96,6 +97,7 @@ class DeterministicClassifier:
                         depth = 0
                         json_headers = {}
                         json_metadata = {}
+                        json_title = "Untitled Document"
 
                 else:
                     merged_nodes.append(node)
@@ -108,6 +110,7 @@ class DeterministicClassifier:
                         content="\n".join(json_buffer),
                         language="json",
                         headers=json_headers,
+                        title=json_title,
                         metadata={
                             "valid_json": False,
                             "incomplete": True,
@@ -120,6 +123,7 @@ class DeterministicClassifier:
                     depth = 0
                     json_headers = {}
                     json_metadata = {}
+                    json_title = "Untitled Document"
                     continue
 
                 depth += self._get_depth_delta_for_line(node.content)
@@ -143,6 +147,7 @@ class DeterministicClassifier:
                         content=merged_text,
                         language="json",
                         headers=json_headers,
+                        title=json_title,
                         metadata={
                             "valid_json": is_valid_json,
                             "incomplete": not is_valid_json,
@@ -155,6 +160,7 @@ class DeterministicClassifier:
                     depth = 0
                     json_headers = {}
                     json_metadata = {}
+                    json_title = "Untitled Document"
 
         if in_json_block and json_buffer:
             merged_nodes.append(CodeNode(
@@ -162,6 +168,7 @@ class DeterministicClassifier:
                 content="\n".join(json_buffer),
                 language="json",
                 headers=json_headers,
+                title=json_title,
                 metadata={
                     "valid_json": False,
                     "incomplete": True,

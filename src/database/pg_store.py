@@ -5,12 +5,11 @@ from psycopg2.extras import execute_values, Json
 from psycopg2.extensions import connection
 from pgvector.psycopg2 import register_vector
 from typing import List, Optional
-import cohere
-from sentence_transformers import CrossEncoder
 
 from src.database.base import BaseVectorStore
 from src.ingestion.nodes import EmbeddedChunk
 from src.config.settings import settings
+from src.database.retriver import Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +17,7 @@ class PGVectorStore(BaseVectorStore):
     def __init__(self, connection_string: str):
         self.connection_string = connection_string
         self.conn: Optional[connection] = None
-
-        # cohere_key = settings.COHERE_API_KEY.get_secret_value() if hasattr(settings.COHERE_API_KEY, "get_secret_value") else settings.COHERE_API_KEY
-        # self.co_client = cohere.Client(cohere_key)
-        # self.cross_encoder_model = CrossEncoder(settings.RERANKING_MODEL_BAAI)
+        self.reranker = Reranker()
 
     def connect(self) -> None:
         try:
@@ -276,7 +272,7 @@ class PGVectorStore(BaseVectorStore):
             for r in rows
         ]
     
-    def hybrid_search_RRF(self, table_name: str, query_text: str, query_embedding: List[float], filters: dict = None) -> List[dict]:
+    def hybrid_search(self, table_name: str, query_text: str, query_embedding: List[float], filters: dict = None) -> List[dict]:
 
         vector_top_k = settings.VECTOR_SEARCH_TOP_K
         keyword_top_k = settings.KEYWORD_SEARCH_TOP_K
@@ -284,116 +280,34 @@ class PGVectorStore(BaseVectorStore):
         vector_results = self.vector_search(table_name, query_embedding, limit=vector_top_k, filters=filters)
         keyword_results = self.keyword_search(table_name, query_text, limit=keyword_top_k, filters=filters)
 
-        # RRF_Score = 1 / (k + rank)
-        k = 60
-        rrf_scores = {}
-        chunk_data = {}
+        unique_results = {}
+        limit = settings.RERANK_CANDIDATE_LIMIT
 
-        VECTOR_WEIGHT = settings.VECTOR_WEIGHT
-        KEYWORD_WEIGHT = settings.KEYWORD_WEIGHT
+        max_size = max(len(vector_results), len(keyword_results))
 
-        for rank, item in enumerate(vector_results):
-            cid = item["chunk_id"]
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (VECTOR_WEIGHT * (1.0 / (k + rank + 1)))
-            chunk_data[cid] = item
+        for i in range(max_size):
+            if len(unique_results) >= limit:
+                break
 
-        for rank, item in enumerate(keyword_results):
-            cid = item["chunk_id"]
-            rrf_scores[cid] = rrf_scores.get(cid, 0.0) + (KEYWORD_WEIGHT * (1.0 / (k + rank + 1)))
-            chunk_data[cid] = item
+            if i < len(keyword_results):
+                k_item = keyword_results[i]
+                k_cid = k_item.get("chunk_id")
+                if k_cid and k_cid not in unique_results:
+                    unique_results[k_cid] = k_item
 
-        sorted_chunks = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+            if len(unique_results) >= limit:
+                break
+                
+            if i < len(vector_results):
+                v_item = vector_results[i]
+                v_cid = v_item.get("chunk_id")
+                if v_cid and v_cid not in unique_results:
+                    unique_results[v_cid] = v_item
+        
+        candidate_list = list(unique_results.values())
 
         max_context_chunks = settings.MAX_CONTEXT_CHUNKS
         if max_context_chunks <= 0:
             raise ValueError("Invalid Max context chunk value")
-
-        final_results = []
-        for cid, score in sorted_chunks[:max_context_chunks]:
-            result = chunk_data[cid].copy()
-            result["final_score"] = score
-            final_results.append(result)
-        
-
             
-        return final_results
-    
-    def hybrid_search_Reranker(self, table_name: str, query_text: str, query_embedding: List[float], filters: dict = None) -> List[dict]:
-
-        vector_top_k = settings.VECTOR_SEARCH_TOP_K
-        keyword_top_k = settings.KEYWORD_SEARCH_TOP_K
-        
-        vector_results = self.vector_search(table_name, query_embedding, limit=vector_top_k, filters=filters)
-        keyword_results = self.keyword_search(table_name, query_text, limit=keyword_top_k, filters=filters)
-
-        unique_candidates = {}
-
-        for item in vector_results + keyword_results:
-            cid = item.get("chunk_id")
-            if cid:
-                if cid not in unique_candidates or item.get("score", 0) > unique_candidates[cid].get("score", 0):
-                    unique_candidates[cid] = item
-
-        candidate_list = list(unique_candidates.values())
-        # candidate_list = sorted(candidate_list, key=lambda x: x.get("score", 0), reverse = True)
-        # rerank_limit = settings.RERANK_CANDIDATE_LIMIT
-
-        # candidate_list = candidate_list[:rerank_limit]
-
-        if not candidate_list:
-            return []
-
-        actual_limit = settings.MAX_CONTEXT_CHUNKS
-
-        # return self._reranker_cohere(candidate_list, query_text, actual_limit)
-        return self._reranker_baai(candidate_list, query_text, actual_limit)
-
-             
-    def _reranker_cohere(self, doc_list, query, limit):
-        documents_to_rerank = [c.get("content") or "" for c in doc_list]
-
-        try:
-            rerank_response = self.co_client.rerank(
-                model = settings.RERANKING_MODEL,
-                query=query,
-                documents=documents_to_rerank,
-                top_n=limit
-            )
-
-            final_result = []
-
-            for result in rerank_response.results:
-
-                matched_candidate = doc_list[result.index].copy()
-                matched_candidate["final_score"] = result.relevance_score
-                final_result.append(matched_candidate)
-
-            return final_result
-        
-        except Exception as e:
-            print(f"Reranker API failed: {e}. Falling back to Vector Search.")
-            return doc_list[:limit]
-        
-    def _reranker_baai(self, doc_list, query, limit):
-        documents_to_rerank = [(query, c.get("content") or "") for c in doc_list]
-
-        try:
-            scores = self.cross_encoder_model.predict(documents_to_rerank)
-            ranked = sorted(zip(doc_list, scores), key = lambda x: x[1], reverse = True)[:limit]
-            
-            final_results = []
-
-            for doc, score in ranked:
-                doc_copy = doc.copy()
-                doc_copy["final_score"] = float(score)
-                final_results.append(doc_copy)
-            
-            if not final_results:
-                print("Empty Response from Reranker")
-                return doc_list[:limit]
-
-            return final_results
-        
-        except Exception as e:
-            print(f"Reranker failed: {e}. Falling back.")
-            return doc_list[:limit]
+        return self.reranker.rerank(doc_list=candidate_list, query=query_text, limit=max_context_chunks)

@@ -42,7 +42,7 @@ class RAGChatEngine:
             mandatory_fields = semantics.get("mandatory_fields_extracted", [])
             payload_purpose = semantics.get("payload_purpose", "GENERAL_INFO")
 
-            section = f"-- CHUNK {i}, from document: {title} --\n"
+            section = f"-- from document: {title} --\n"
             if endpoints:
                 section += f"ENDPOINTS: {', '.join(endpoints)}\n"
             if methods:
@@ -70,19 +70,12 @@ class RAGChatEngine:
             raise ValueError("Embedding generation returned an empty vector.")
 
         logger.info("Executing Hybrid Search...")
-        retrieved_chunks = self.vector_store.hybrid_search_RRF(
+        retrieved_chunks = self.vector_store.hybrid_search(
             table_name=self.table_name,
             query_text=user_query,
             query_embedding=query_embedding,
             filters=filters
         )
-
-        # retrieved_chunks = self.vector_store.hybrid_search_Reranker(
-        #     table_name=self.table_name,
-        #     query_text=user_query,
-        #     query_embedding=query_embedding,
-        #     filters=filters
-        # )
 
         if not retrieved_chunks:
             return {
@@ -91,6 +84,16 @@ class RAGChatEngine:
             }
 
         formatted_context = self._format_context(retrieved_chunks)
+
+        # =========================================================
+        #FOR DEBUGGING-->
+        # print("\n" + "="*60)
+        # print("DEBUG: WHAT THE LLM ACTUALLY SEES (Top Context)")
+        # print("="*60)
+        # print(formatted_context)
+        # print("="*60 + "\n")
+        # =========================================================
+
 
         logger.info("Generating response from LLM...")
         chain = self.prompt_template | self.llm

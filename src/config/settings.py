@@ -63,7 +63,7 @@ class Settings(BaseSettings):
         default=SecretStr(""), 
         description="Wrapped in SecretStr to prevent accidental logging leaks."
     )
-    RERANKER_PROVIDER: Literal["cohere", "mock"] = "cohere"
+    RERANKER_PROVIDER: Literal["cohere", "cross_encoder", "mock"] = "cross_encoder"
     RERANKING_MODEL: str = "rerank-english-v3.0"
     RERANK_CANDIDATE_LIMIT: int = 30
     RERANKING_MODEL_BAAI: str ="BAAI/bge-reranker-v2-m3"

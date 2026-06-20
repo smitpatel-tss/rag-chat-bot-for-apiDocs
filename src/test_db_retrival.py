@@ -13,7 +13,7 @@ def test_pipeline(user_query: str):
     if not query_embedding:
         raise ValueError("Embedding generation returned an empty vector.")
 
-    retrieved_chunks = vector_store.hybrid_search_RRF(
+    retrieved_chunks = vector_store.hybrid_search(
         table_name=settings.VECTOR_DB_COLLECTION,
         query_text=user_query,
         query_embedding=query_embedding
@@ -26,4 +26,4 @@ def test_pipeline(user_query: str):
         print(r)
 
 if __name__ == "__main__":
-    test_pipeline("What are the mandatory fields?")
+    test_pipeline("How can I compare a selfie against a photo extracted from an Aadhaar card using the available APIs?")
